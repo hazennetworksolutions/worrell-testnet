@@ -3,7 +3,7 @@
 # ⛓️ Worrell Testnet Full Node & Validator Setup Guide
 
 **A complete guide to running a Worrell testnet full node and registering as a validator**
-*Prebuilt binary or build from source, genesis, peers, systemd service, and validator creation — step by step.*
+*Prebuilt binary or build from source, Cosmovisor, genesis, peers, systemd service, and validator creation — step by step.*
 
 [![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04+-E95420?style=flat-square&logo=ubuntu&logoColor=white)](https://ubuntu.com)
 [![Worrell](https://img.shields.io/badge/Worrell-Testnet-6C4DF6?style=flat-square)](https://worrellchain.com)
@@ -32,17 +32,18 @@
 - [Step 2 — System Update and Dependencies](#step-2--system-update-and-dependencies)
 - [Step 3 — Install worrelld (Prebuilt Binary)](#step-3--install-worrelld-prebuilt-binary)
 - [Step 3 Alt — Build worrelld from Source](#step-3-alt--build-worrelld-from-source)
-- [Step 4 — Initialize the Node](#step-4--initialize-the-node)
-- [Step 5 — Download and Verify Genesis](#step-5--download-and-verify-genesis)
-- [Step 6 — Configure Peers (config.toml)](#step-6--configure-peers-configtoml)
-- [Step 7 — Set the Minimum Gas Price (app.toml)](#step-7--set-the-minimum-gas-price-apptoml)
-- [Step 8 — Configure Custom Ports (Optional)](#step-8--configure-custom-ports-optional)
-- [Step 9 — Enable Prometheus (Optional)](#step-9--enable-prometheus-optional)
-- [Step 10 — Create Systemd Service](#step-10--create-systemd-service)
-- [Step 11 — Start the Node](#step-11--start-the-node)
-- [Step 12 — Verify Sync](#step-12--verify-sync)
-- [Step 13 — Create a Wallet and Fund It (Faucet)](#step-13--create-a-wallet-and-fund-it-faucet)
-- [Step 14 — Register as a Validator](#step-14--register-as-a-validator)
+- [Step 4 — Set Up Cosmovisor](#step-4--set-up-cosmovisor)
+- [Step 5 — Initialize the Node](#step-5--initialize-the-node)
+- [Step 6 — Download and Verify Genesis](#step-6--download-and-verify-genesis)
+- [Step 7 — Configure Peers (config.toml)](#step-7--configure-peers-configtoml)
+- [Step 8 — Set the Minimum Gas Price (app.toml)](#step-8--set-the-minimum-gas-price-apptoml)
+- [Step 9 — Configure Custom Ports (Optional)](#step-9--configure-custom-ports-optional)
+- [Step 10 — Enable Prometheus (Optional)](#step-10--enable-prometheus-optional)
+- [Step 11 — Create Systemd Service](#step-11--create-systemd-service)
+- [Step 12 — Start the Node](#step-12--start-the-node)
+- [Step 13 — Verify Sync](#step-13--verify-sync)
+- [Step 14 — Create a Wallet and Fund It (Faucet)](#step-14--create-a-wallet-and-fund-it-faucet)
+- [Step 15 — Register as a Validator](#step-15--register-as-a-validator)
 - [Monitoring & Avoiding Jailing](#monitoring--avoiding-jailing)
 - [Useful Commands](#useful-commands)
 - [Firewall](#firewall)
@@ -123,9 +124,9 @@ curl -LO https://github.com/worrellchain/worrell/releases/download/v0.1.2/v0.1.2
 sha256sum v0.1.2_linux_amd64.tar.gz
 
 tar -xzf v0.1.2_linux_amd64.tar.gz
-mkdir -p ~/bin && mv worrelld ~/bin/
-echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
+mkdir -p $HOME/go/bin && mv worrelld $HOME/go/bin/
+echo 'export PATH=$PATH:$HOME/go/bin' >> ~/.bash_profile
+source ~/.bash_profile
 ```
 
 Verify:
@@ -136,7 +137,7 @@ worrelld version --long | head -5
 worrelld --help
 ```
 
-> If you prefer to build (and audit) the binary yourself instead of using the prebuilt tarball, see the alternative step below and skip this one.
+> If you prefer to build (and audit) the binary yourself instead of using the prebuilt tarball, see the alternative step below and skip this one. Either way, the resulting binary ends up at `$HOME/go/bin/worrelld`, which is what Cosmovisor will pick up in the next step.
 
 ---
 
@@ -153,16 +154,21 @@ Install Go 1.25:
 ```bash
 curl -LO https://go.dev/dl/go1.25.13.linux-amd64.tar.gz
 sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.25.13.linux-amd64.tar.gz
-echo 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' >> ~/.profile
-source ~/.profile
+
+[ ! -f ~/.bash_profile ] && touch ~/.bash_profile
+echo 'export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin' >> ~/.bash_profile
+echo 'export GOPATH=$HOME/go' >> ~/.bash_profile
+source ~/.bash_profile
+
+[ ! -d ~/go/bin ] && mkdir -p ~/go/bin
 go version
 ```
 
 Clone and build the published release tag:
 
 ```bash
-git clone https://github.com/worrellchain/worrell.git
-cd worrell
+git clone https://github.com/worrellchain/worrell.git $HOME/worrell
+cd $HOME/worrell
 git checkout v0.1.2
 make install
 ```
@@ -170,14 +176,45 @@ make install
 `make install` compiles `worrelld` and places it in `$HOME/go/bin`.
 
 ```bash
-echo 'export PATH=$PATH:$HOME/go/bin' >> ~/.profile
-source ~/.profile
 worrelld version --long | head -5
 ```
 
 ---
 
-## Step 4 — Initialize the Node
+## Step 4 — Set Up Cosmovisor
+
+Cosmovisor manages the `worrelld` binary as a subprocess and automates future upgrades (a new binary just gets dropped into the right folder — no manual downtime). Install it and lay out the directory structure:
+
+```bash
+go install cosmossdk.io/tools/cosmovisor/cmd/cosmovisor@v1.6.0
+```
+
+Create the genesis upgrade directory and place the binary:
+
+```bash
+mkdir -p $HOME/.worrell/cosmovisor/genesis/bin
+cp $HOME/go/bin/worrelld $HOME/.worrell/cosmovisor/genesis/bin/
+```
+
+Create the symlink so Cosmovisor points to the current version:
+
+```bash
+sudo ln -sfn $HOME/.worrell/cosmovisor/genesis $HOME/.worrell/cosmovisor/current
+sudo ln -sfn $HOME/.worrell/cosmovisor/current/bin/worrelld /usr/local/bin/worrelld
+```
+
+Verify:
+
+```bash
+cosmovisor version
+worrelld version --long | head -5
+```
+
+> Future governance upgrades: place the new binary at `$HOME/.worrell/cosmovisor/upgrades/<UPGRADE-NAME>/bin/worrelld`, and Cosmovisor will automatically swap to it when the upgrade height is reached. Announcements are posted on [t.me/worrellvalidators](https://t.me/worrellvalidators).
+
+---
+
+## Step 5 — Initialize the Node
 
 Pick a moniker (your node's public display name) and initialize the data directory:
 
@@ -186,25 +223,26 @@ MONIKER="YOUR_MONIKER"
 
 worrelld init "$MONIKER" --chain-id worrell-testnet-1
 
-echo "export MONIKER=$MONIKER" >> $HOME/.bashrc
-echo "export WORRELL_CHAIN_ID=\"worrell-testnet-1\"" >> $HOME/.bashrc
-echo "export WORRELL_HOME=\"$HOME/.worrell\"" >> $HOME/.bashrc
-source $HOME/.bashrc
+echo "export MONIKER=$MONIKER" >> $HOME/.bash_profile
+echo "export WORRELL_CHAIN_ID=\"worrell-testnet-1\"" >> $HOME/.bash_profile
+echo "export WORRELL_HOME=\"$HOME/.worrell\"" >> $HOME/.bash_profile
+source $HOME/.bash_profile
 ```
 
 > ℹ️ Replace `YOUR_MONIKER` with your own node display name.
 
-This creates `~/.worrell` with:
+This populates `~/.worrell` with:
 
 - `config/genesis.json` — genesis (replaced in the next step)
 - `config/config.toml` — CometBFT configuration (peers, P2P, RPC)
 - `config/app.toml` — application configuration (gas, API, gRPC)
 - `config/priv_validator_key.json` — validator signing key (**protect it!**)
 - `config/node_key.json` — node network identity
+- `cosmovisor/` — Cosmovisor's own directory structure (from Step 4)
 
 ---
 
-## Step 5 — Download and Verify Genesis
+## Step 6 — Download and Verify Genesis
 
 Pull the canonical testnet genesis from the official [`worrellchain/networks`](https://github.com/worrellchain/networks) repo and verify the checksum before continuing:
 
@@ -226,7 +264,7 @@ sha256sum ~/.worrell/config/genesis.json
 
 ---
 
-## Step 6 — Configure Peers (config.toml)
+## Step 7 — Configure Peers (config.toml)
 
 Set the persistent peer in the `[p2p]` section of `config.toml`. The up-to-date peer list is published in [`worrell-testnet-1/chain.json`](https://github.com/worrellchain/networks/blob/main/worrell-testnet-1/chain.json) (`peers` section) — check it if this guide is older than a few weeks.
 
@@ -249,7 +287,7 @@ grep -E '^(persistent_peers|external_address) ' "$WORRELL_HOME/config/config.tom
 
 ---
 
-## Step 7 — Set the Minimum Gas Price (app.toml)
+## Step 8 — Set the Minimum Gas Price (app.toml)
 
 This is **mandatory** for the node to accept and process transactions:
 
@@ -270,14 +308,14 @@ By default the REST API (`1317`) and gRPC (`9090`) listen only on `localhost` �
 
 ---
 
-## Step 8 — Configure Custom Ports (Optional)
+## Step 9 — Configure Custom Ports (Optional)
 
 Useful if you plan to run more than one node on the same server. Enter a 2-digit prefix (e.g. `46`) and rewrite the relevant ports in both files:
 
 ```bash
 read -p "Enter your PORT prefix (2-digit, e.g. 46): " WORRELL_PORT
-echo "export WORRELL_PORT=$WORRELL_PORT" >> $HOME/.bashrc
-source $HOME/.bashrc
+echo "export WORRELL_PORT=$WORRELL_PORT" >> $HOME/.bash_profile
+source $HOME/.bash_profile
 ```
 
 Apply to `app.toml`:
@@ -309,7 +347,7 @@ grep -E ":(${WORRELL_PORT})" "$WORRELL_HOME/config/app.toml" | head -5
 
 ---
 
-## Step 9 — Enable Prometheus (Optional)
+## Step 10 — Enable Prometheus (Optional)
 
 ```bash
 sed -i -e "s/prometheus = false/prometheus = true/" "$WORRELL_HOME/config/config.toml"
@@ -320,23 +358,28 @@ Metrics become available at `http://127.0.0.1:26660/metrics`.
 
 ---
 
-## Step 10 — Create Systemd Service
+## Step 11 — Create Systemd Service
 
-Running the node under `systemd` with automatic restart is strongly recommended — a node that restarts quickly after a crash is much less likely to be jailed for downtime.
+Run the node under `systemd` **through Cosmovisor** so future upgrades are picked up automatically and the process restarts on failure — a node that restarts quickly after a crash is much less likely to be jailed for downtime.
 
 ```bash
 sudo bash -c "cat > /etc/systemd/system/worrelld.service" << EOF
 [Unit]
-Description=Worrell node
+Description=worrelld node service
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 User=$USER
-ExecStart=$HOME/bin/worrelld start
+ExecStart=$(which cosmovisor) run start
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65535
+Environment="DAEMON_HOME=$HOME/.worrell"
+Environment="DAEMON_NAME=worrelld"
+Environment="UNSAFE_SKIP_BACKUP=true"
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:$HOME/.worrell/cosmovisor/current/bin"
+Environment="LD_LIBRARY_PATH=$HOME/.worrell"
 
 [Install]
 WantedBy=multi-user.target
@@ -346,11 +389,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable worrelld
 ```
 
-> Adjust `ExecStart` to `$HOME/go/bin/worrelld start` if you built from source instead of using the prebuilt binary.
-
 ---
 
-## Step 11 — Start the Node
+## Step 12 — Start the Node
 
 ```bash
 sudo systemctl start worrelld
@@ -365,13 +406,13 @@ sudo systemctl status worrelld --no-pager
 
 Expected output:
 ```
-● worrelld.service - Worrell node
+● worrelld.service - worrelld node service
      Active: active (running) since ...
 ```
 
 ---
 
-## Step 12 — Verify Sync
+## Step 13 — Verify Sync
 
 ```bash
 worrelld status 2>&1 | jq '.sync_info | {latest_block_height, catching_up}'
@@ -388,7 +429,7 @@ curl -s https://worrell.api.t.anode.team/cosmos/base/tendermint/v1beta1/blocks/l
 
 ---
 
-## Step 13 — Create a Wallet and Fund It (Faucet)
+## Step 14 — Create a Wallet and Fund It (Faucet)
 
 ```bash
 worrelld keys add wallet
@@ -426,11 +467,11 @@ worrelld query bank balances $(worrelld keys show wallet -a) \
 
 ---
 
-## Step 14 — Register as a Validator
+## Step 15 — Register as a Validator
 
 > The node must be **fully synchronized** (`catching_up: false`) before creating a validator.
 
-### 14.1 Get the consensus public key
+### 15.1 Get the consensus public key
 
 ```bash
 worrelld tendermint show-validator
@@ -438,7 +479,7 @@ worrelld tendermint show-validator
 
 Returns a value like `{"@type":"/cosmos.crypto.ed25519.PubKey","key":"..."}`.
 
-### 14.2 Create the validator JSON
+### 15.2 Create the validator JSON
 
 ```bash
 cat > $HOME/validator.json << EOF
@@ -458,7 +499,7 @@ cat > $HOME/validator.json << EOF
 EOF
 ```
 
-### 14.3 Submit the transaction
+### 15.3 Submit the transaction
 
 ```bash
 worrelld tx staking create-validator $HOME/validator.json \
@@ -470,7 +511,7 @@ worrelld tx staking create-validator $HOME/validator.json \
   --yes
 ```
 
-### 14.4 Field reference
+### 15.4 Field reference
 
 | Flag / field | Example value | Meaning |
 |--------------|-------------------|-------------|
@@ -484,7 +525,7 @@ worrelld tx staking create-validator $HOME/validator.json \
 
 > ℹ️ The **5% (`0.05`) minimum commission is global** — no validator can go below it. The maximum commission and max daily change rate are set per-validator at creation time and the max **cannot be increased afterward**.
 
-### 14.5 Verify the validator
+### 15.5 Verify the validator
 
 ```bash
 worrelld query staking validator $(worrelld keys show wallet --bech val -a)
@@ -508,10 +549,10 @@ Confirm `status` is `BOND_STATUS_BONDED` and `jailed` is `false`.
 
 To avoid jailing due to downtime:
 
-- Run the node under `systemd` with automatic restart (Step 10).
+- Run the node under `systemd` + Cosmovisor with automatic restart (Step 11).
 - Keep disk/CPU headroom — a node that can't keep up misses blocks.
 - **Never** run two instances with the same `priv_validator_key.json` at once — this causes a **double sign** and a 5% + permanent tombstone slash, far worse than downtime jailing.
-- Enable Prometheus (Step 9) and set up alerts on missed blocks.
+- Enable Prometheus (Step 10) and set up alerts on missed blocks.
 - Subscribe to [t.me/worrellvalidators](https://t.me/worrellvalidators) for upgrade/governance announcements.
 
 ### Check signing info
@@ -659,6 +700,16 @@ worrelld tx slashing unjail \
 worrelld query slashing signing-info $(worrelld tendermint show-address)
 ```
 
+### Cosmovisor Upgrades
+
+```bash
+mkdir -p $HOME/.worrell/cosmovisor/upgrades/<UPGRADE-NAME>/bin
+cp <new-worrelld-binary> $HOME/.worrell/cosmovisor/upgrades/<UPGRADE-NAME>/bin/worrelld
+chmod +x $HOME/.worrell/cosmovisor/upgrades/<UPGRADE-NAME>/bin/worrelld
+```
+
+Cosmovisor automatically swaps to the new binary and restarts `worrelld` once the upgrade height is reached — no manual `systemctl` intervention needed.
+
 ---
 
 ## Firewall
@@ -679,7 +730,7 @@ sudo ufw allow 1317/tcp comment "worrell REST"
 sudo ufw allow 9090/tcp comment "worrell gRPC"
 ```
 
-(Adjust the port numbers if you applied the custom prefix in Step 8.)
+(Adjust the port numbers if you applied the custom prefix in Step 9.)
 
 ---
 
