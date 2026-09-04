@@ -30,8 +30,7 @@
 - [Network Endpoints](#network-endpoints)
 - [Step 1 — System Verification](#step-1--system-verification)
 - [Step 2 — System Update and Dependencies](#step-2--system-update-and-dependencies)
-- [Step 3 — Install worrelld (Prebuilt Binary)](#step-3--install-worrelld-prebuilt-binary)
-- [Step 3 Alt — Build worrelld from Source](#step-3-alt--build-worrelld-from-source)
+- [Step 3 — Install worrelld (choose ONE option)](#step-3--install-worrelld-choose-one-option)
 - [Step 4 — Set Up Cosmovisor](#step-4--set-up-cosmovisor)
 - [Step 5 — Initialize the Node](#step-5--initialize-the-node)
 - [Step 6 — Download and Verify Genesis](#step-6--download-and-verify-genesis)
@@ -105,9 +104,18 @@ sudo apt install -y git curl build-essential jq wget tmux htop unzip
 
 ---
 
-## Step 3 — Install worrelld (Prebuilt Binary)
+## Step 3 — Install worrelld (choose ONE option)
 
-The `worrelld` binary is statically linked and self-contained — no Go toolchain required. This is the fastest way to get running. Pick the tarball matching your platform from the [releases page](https://github.com/worrellchain/worrell/releases/tag/v0.1.2):
+There are **two ways** to get the `worrelld` binary — pick **one**, not both:
+
+- **Option A (recommended):** download the prebuilt tarball. Faster, no build tools needed.
+- **Option B:** build from source. Slower, but lets you audit the code you're running.
+
+Whichever you pick, the result is the same: `worrelld` ends up at `$HOME/go/bin/worrelld`, which is what Cosmovisor (Step 4) expects.
+
+### Option A — Prebuilt Binary (recommended)
+
+The `worrelld` binary is statically linked and self-contained — no Go toolchain required. Pick the tarball matching your platform from the [releases page](https://github.com/worrellchain/worrell/releases/tag/v0.1.2):
 
 | Platform (`uname -s` / `uname -m`) | Tarball |
 |---|---|
@@ -137,11 +145,11 @@ worrelld version --long | head -5
 worrelld --help
 ```
 
-> If you prefer to build (and audit) the binary yourself instead of using the prebuilt tarball, see the alternative step below and skip this one. Either way, the resulting binary ends up at `$HOME/go/bin/worrelld`, which is what Cosmovisor will pick up in the next step.
+> ✅ Done? **Skip Option B below** and go straight to [Step 4 — Set Up Cosmovisor](#step-4--set-up-cosmovisor).
 
----
+### Option B — Build from Source
 
-## Step 3 Alt — Build worrelld from Source
+> Only do this if you did **not** already install the binary via Option A above.
 
 Dependencies: **Go 1.25+** (check `go.mod` in the repo for the exact minimum), `git`, `make`, `build-essential`.
 
@@ -182,6 +190,8 @@ worrelld version --long | head -5
 ---
 
 ## Step 4 — Set Up Cosmovisor
+
+> Continue here regardless of which option you chose in Step 3.
 
 Cosmovisor manages the `worrelld` binary as a subprocess and automates future upgrades (a new binary just gets dropped into the right folder — no manual downtime). Install it and lay out the directory structure:
 
