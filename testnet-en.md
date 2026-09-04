@@ -339,14 +339,26 @@ sed -i.bak -e "s%:1317%:${WORRELL_PORT}317%g" \
 
 Apply to `config.toml`:
 
+> ⚠️ **Do NOT use a blanket `s/:26656/:XX656/g` replace on `config.toml`.** Your `persistent_peers` line (Step 7) also contains the literal string `:26656` — but that's the **remote** peer's port (`164.68.98.186:26656`) and must stay untouched. A generic global replace corrupts it into `164.68.98.186:${WORRELL_PORT}656`, which doesn't exist, and your node will loop forever with `dial tcp ...: i/o timeout`. The patterns below are anchored to the exact local `laddr`/`proxy_app` lines so they can never touch `persistent_peers`, `seeds`, or `external_address`'s IP.
+
 ```bash
-sed -i.bak -e "s%:26657%:${WORRELL_PORT}657%g" \
-           -e "s%:26656%:${WORRELL_PORT}656%g" \
-           -e "s%:26660%:${WORRELL_PORT}660%g" \
-           "$WORRELL_HOME/config/config.toml"
+sed -i.bak \
+  -e "s|^proxy_app = \"tcp://127.0.0.1:26658\"|proxy_app = \"tcp://127.0.0.1:${WORRELL_PORT}658\"|" \
+  -e "s|^laddr = \"tcp://127.0.0.1:26657\"|laddr = \"tcp://127.0.0.1:${WORRELL_PORT}657\"|" \
+  -e "s|^laddr = \"tcp://0.0.0.0:26656\"|laddr = \"tcp://0.0.0.0:${WORRELL_PORT}656\"|" \
+  -e "s|^prometheus_listen_addr = \":26660\"|prometheus_listen_addr = \":${WORRELL_PORT}660\"|" \
+  "$WORRELL_HOME/config/config.toml"
+
+# If you set a real external_address in Step 7, update its port too (keeps your public IP intact):
+sed -i.bak -E "s|^(external_address = \"[^:\"]+):26656\"|\1:${WORRELL_PORT}656\"|" "$WORRELL_HOME/config/config.toml"
 ```
 
-Verify:
+Verify — and specifically confirm `persistent_peers` was **not** touched:
+
+```bash
+grep -E '^persistent_peers' "$WORRELL_HOME/config/config.toml"
+# must still show ...@164.68.98.186:26656 — the REMOTE port never changes
+```
 
 ```bash
 grep -E ":(${WORRELL_PORT})" "$WORRELL_HOME/config/config.toml" | head -5
