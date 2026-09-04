@@ -63,8 +63,6 @@ The testnet (`worrell-testnet-1`) is live and open to node operators — up to 1
 | Min commission (global) | 5% |
 | Unbonding period | 1 hour (testnet) / 21 days (mainnet) |
 
-> ⚠️ **Bu bir 3. parti (community) referans dokümandır**, Worrell'in resmi ekibiyle bağlantılı değildir. Kaynaklar: [worrellchain/networks](https://github.com/worrellchain/networks) ve [worrellchain.com](https://worrellchain.com) (resmi), ayrıca bir validatörün hazırladığı [docs.oshvank.xyz/docs/testnet/Worrel](https://docs.oshvank.xyz/docs/testnet/Worrel) çapraz kontrol için kullanıldı. Chain hâlâ genç ve aktif geliştirme altında — genesis, peer listesi, sürüm ve endpoint'ler zamanla değişebilir; kritik komutlardan önce [worrellchain/networks](https://github.com/worrellchain/networks) reposundan güncel bilgiyi teyit et.
-
 ---
 
 ## About the Author
